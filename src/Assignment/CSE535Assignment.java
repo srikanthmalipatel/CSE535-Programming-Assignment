@@ -15,7 +15,7 @@ public class CSE535Assignment {
 	HashMap<String, termObject> m_termHash;
 	BufferedWriter outLog;
 	
-	public CSE535Assignment(String fileName, String kVal, String outFile) {
+	public CSE535Assignment(String fileName, String kVal, String outFile, String queryFile) {
 		k = Integer.parseInt(kVal);
 		// open/create output log
 		try {
@@ -25,12 +25,16 @@ public class CSE535Assignment {
 			}
 			FileWriter fLog = new FileWriter(output.getAbsoluteFile());
 			outLog = new BufferedWriter(fLog);
+			m_termHash = new HashMap<String, termObject>();
+			indexFile(fileName);
+			
+			processQueryFile(queryFile);
+			outLog.close();
+			
 		} catch (IOException e) {
 			System.out.println("Error creating file" + outFile);
 			e.printStackTrace();
 		}
-		m_termHash = new HashMap<String, termObject>();
-		indexFile(fileName);
 	}
 	
 	// This function parses and indexes data from .idx file
@@ -91,7 +95,7 @@ public class CSE535Assignment {
 			}
 			
 			// Printing top K terms
-			outLog.write("Function getTopK "+k);
+			outLog.write("Function: getTopK "+k);
 			outLog.newLine();
 			String result = "Result: ";
 			for(int i=0; i<k; i++) {
@@ -100,7 +104,6 @@ public class CSE535Assignment {
 			}
 			outLog.write(result);
 			outLog.newLine();
-			outLog.close();
 			
 			bufferedReader.close();
 		}
@@ -108,8 +111,202 @@ public class CSE535Assignment {
 			System.out.println("Error reading file" + fileName);
 		}
 	}
+	
+	public void processQueryFile(String qFile) {
+		try {
+			FileReader fileReader = new FileReader(qFile);
+			BufferedReader bufferedReader = new BufferedReader(fileReader);
+			
+			String query = null;
+			while((query = bufferedReader.readLine()) != null) {
+				String[] terms = query.split(" ");
+				for(int i=0; i<terms.length; i++) {
+					String pList = "Function: getPostings " + terms[i], pList2 = "Ordered by TF: ";
+					outLog.write(pList);
+					outLog.newLine();
+					LinkedList<postingNode> td = m_termHash.get(terms[i]).m_docIdPL;
+					LinkedList<postingNode> tf = m_termHash.get(terms[i]).m_termFreqPL;
+					pList = "Ordered by doc IDs: ";
+					for(int j=0; j<td.size(); j++) {
+						pList += td.get(j).m_docId + " ";
+						pList2 += tf.get(j).m_docId + " ";
+					}
+					outLog.write(pList);
+					outLog.newLine();
+					outLog.write(pList2);
+					outLog.newLine();
+				}
+				termAtATimeQueryAnd(terms);
+				termAtATimeQueryOr(terms);
+			}
+			bufferedReader.close();
+			
+		} catch(IOException e) {
+			System.out.println("Error opening query file");
+		}
+	}
+	
+	public void termAtATimeQueryAnd(String[] qTerms) {
+		// get the first term and fill the linked list with them
+		long timeS = System.currentTimeMillis();
+		
+		LinkedList<postingNode> termFreq = m_termHash.get(qTerms[0]).m_termFreqPL;
+		LinkedList<postingNode> result = new LinkedList<postingNode>(termFreq);
+		
+		int compareCount = 0;
+		for(int i=1; i<qTerms.length; i++) {
+			// get the termFreqPL posting list for this term
+			termFreq = m_termHash.get(qTerms[i]).m_termFreqPL;
+			for(int j=0; j<result.size(); j++) {
+				boolean isFound = false;
+				//System.out.println("Searching for docID in result: " + result.get(j).m_docId);
+				for(int k=0; k<termFreq.size(); k++) {
+					if(result.get(j).m_docId == termFreq.get(k).m_docId) {
+						//System.out.println("Matching docID: "+ result.get(j).m_docId);
+						isFound = true;
+					}
+					compareCount++;
+				}
+				if(!isFound) {
+					//System.out.println("removing doc ID: " + result.get(j).m_docId);
+					result.remove(j);
+					j--;
+				}
+			}
+			//System.out.println("Result size: "+result.size());
+		}
+		result.sort(new Comparator<postingNode>() {
+	        public int compare(postingNode p1, postingNode p2) {
+	            return p1.m_docId < p2.m_docId ? -1 : 1;
+	        }
+	    });
+		long timeE = System.currentTimeMillis();
+		
+		try {
+			String resString = "Function: termAtATimeQueryAnd ";
+			for(int i=0; i<qTerms.length; i++) {
+				resString += qTerms[i] + " ";
+			}
+			outLog.write(resString);
+			outLog.newLine();
+			
+			outLog.write(result.size() + " documents are found");
+			outLog.newLine();
+			
+			outLog.write(compareCount + " comparisons are made");
+			outLog.newLine();
+			
+			outLog.write((timeE-timeS)/1000 + " seconds are used");
+			outLog.newLine();
+			
+			resString = "Result: ";
+			for(int i=0; i<result.size(); i++) {
+				resString += (result.get(i).m_docId + " ") ;
+			}
+			outLog.write(resString);
+			outLog.newLine();
+			
+		} catch (IOException e) {
+			System.out.println("Failed to log");
+			e.printStackTrace();
+		}	
+	}
+	
+	public void termAtATimeQueryOr(String[] qTerms) {
+		long timeS = System.currentTimeMillis();
+		try {
+			for(int i=0; i<qTerms.length; i++) {
+				String pList = "Function: getPostings " + qTerms[i], pList2 = "Ordered by TF: ";
+				outLog.write(pList);
+				outLog.newLine();
+				LinkedList<postingNode> td = m_termHash.get(qTerms[i]).m_docIdPL;
+				LinkedList<postingNode> tf = m_termHash.get(qTerms[i]).m_termFreqPL;
+				pList = "Ordered by doc IDs: ";
+				for(int j=0; j<td.size(); j++) {
+					pList += td.get(j).m_docId + " ";
+					pList2 += tf.get(j).m_docId + " ";
+				}
+				outLog.write(pList);
+				outLog.newLine();
+				outLog.write(pList2);
+				outLog.newLine();
+			}
+		} catch(IOException io) {
+			System.out.println("Failed to log");
+		}
+		
+		LinkedList<postingNode> termFreq = m_termHash.get(qTerms[0]).m_termFreqPL;
+		LinkedList<postingNode> result = new LinkedList<postingNode>(termFreq);
+		
+		int compareCount = 0;
+		for(int i=1; i<qTerms.length; i++) {
+			// get the termFreqPL posting list for this term
+			termFreq = m_termHash.get(qTerms[i]).m_termFreqPL;
+			LinkedList<postingNode> temp = new LinkedList<postingNode>();
+			
+			for(int j=0; j<termFreq.size(); j++) {
+				boolean isfound = false;
+				for(int k=0; k<result.size(); k++) {
+					if(result.get(k).m_docId == termFreq.get(j).m_docId) {
+						isfound = true;
+					}
+					compareCount++;
+				}
+				if(!isfound) {
+					temp.add(termFreq.get(j));
+				}
+			}
+			result.addAll(temp);
+			
+			//System.out.println("Result size: "+result.size());
+		}
+		result.sort(new Comparator<postingNode>() {
+	        public int compare(postingNode p1, postingNode p2) {
+	            return p1.m_docId < p2.m_docId ? -1 : 1;
+	        }
+	    });
+		long timeE = System.currentTimeMillis();
+		
+		try {
+			String resString = "Function: termAtATimeQueryOr ";
+			for(int i=0; i<qTerms.length; i++) {
+				resString += qTerms[i] + " ";
+			}
+			outLog.write(resString);
+			outLog.newLine();
+			
+			outLog.write(result.size() + " documents are found");
+			outLog.newLine();
+			
+			outLog.write(compareCount + " comparisons are made");
+			outLog.newLine();
+			
+			outLog.write((timeE-timeS)/1000 + " seconds are used");
+			outLog.newLine();
+			
+			resString = "Result: ";
+			for(int i=0; i<result.size(); i++) {
+				resString += (result.get(i).m_docId + " ") ;
+			}
+			outLog.write(resString);
+			outLog.newLine();
+			
+		} catch (IOException e) {
+			System.out.println("Failed to log");
+			e.printStackTrace();
+		}
+		
+	}
 
+	public void docAtATimeQueryAnd(String[] qTerms) {
+		
+	}
+	
+	public void docAtATimeQueryOr(String[] qTerms) {
+		
+	}
+	
 	public static void main(String[] args) {
-		CSE535Assignment Assgn = new CSE535Assignment(args[0], args[2], args[1]);
+		CSE535Assignment Assgn = new CSE535Assignment(args[0], args[2], args[1], args[3]);
 	}
 }
