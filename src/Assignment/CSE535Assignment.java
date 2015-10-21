@@ -14,6 +14,7 @@ public class CSE535Assignment {
 	int k;
 	HashMap<String, termObject> m_termHash;
 	BufferedWriter outLog;
+	long timeTaken;
 	
 	public CSE535Assignment(String fileName, String kVal, String outFile, String queryFile) {
 		k = Integer.parseInt(kVal);
@@ -124,22 +125,44 @@ public class CSE535Assignment {
 					String pList = "Function: getPostings " + terms[i], pList2 = "Ordered by TF: ";
 					outLog.write(pList);
 					outLog.newLine();
-					LinkedList<postingNode> td = m_termHash.get(terms[i]).m_docIdPL;
-					LinkedList<postingNode> tf = m_termHash.get(terms[i]).m_termFreqPL;
+					
 					pList = "Ordered by doc IDs: ";
-					for(int j=0; j<td.size(); j++) {
-						pList += td.get(j).m_docId + " ";
-						pList2 += tf.get(j).m_docId + " ";
+					if(!m_termHash.containsKey(terms[i])) {
+						pList += "Term not found";
+						pList2 += "Term not found";
+					}
+					else {
+						LinkedList<postingNode> td = m_termHash.get(terms[i]).m_docIdPL;
+						LinkedList<postingNode> tf = m_termHash.get(terms[i]).m_termFreqPL;
+						for(int j=0; j<td.size(); j++) {
+							pList += td.get(j).m_docId + " ";
+							pList2 += tf.get(j).m_docId + " ";
+						}
 					}
 					outLog.write(pList);
 					outLog.newLine();
 					outLog.write(pList2);
 					outLog.newLine();
 				}
-				termAtATimeQueryAnd(terms);
-				termAtATimeQueryOr(terms);
+				String[] orderedTerms;
+				orderedTerms = Arrays.copyOf(terms, terms.length);
+				Arrays.sort(orderedTerms, new Comparator<String>() {
+					public int compare(String p1, String p2) {
+						int tf1 = (m_termHash.containsKey(p1)) ? m_termHash.get(p1).m_nDocCount : 0;
+						int tf2 =  (m_termHash.containsKey(p1)) ? m_termHash.get(p2).m_nDocCount: 0;
+						return tf1 < tf2 ? -1 : 0;
+					}
+				});
+				
+				long timeS = System.currentTimeMillis();
+				termAtATimeQueryAnd(terms,false);
+				termAtATimeQueryAnd(orderedTerms,true);
+				termAtATimeQueryOr(terms,false);
+				termAtATimeQueryOr(orderedTerms,true);
 				docAtATimeQueryAnd(terms);
 				docAtATimeQueryOr(terms);
+				long timeE = System.currentTimeMillis();
+				//System.out.println("Time Taken: " + (timeE-timeS)/1000.0);
 			}
 			bufferedReader.close();
 			
@@ -148,15 +171,26 @@ public class CSE535Assignment {
 		}
 	}
 	
-	public void termAtATimeQueryAnd(String[] qTerms) {
+	public String termAtATimeQueryAnd(String[] qTerms, boolean isOptimized) {
 		// get the first term and fill the linked list with them
 		long timeS = System.currentTimeMillis();
 		
-		LinkedList<postingNode> termFreq = m_termHash.get(qTerms[0]).m_termFreqPL;
+		boolean andFailed = false;
+		LinkedList<postingNode> termFreq = null;
+		if(m_termHash.containsKey(qTerms[0]))
+			termFreq = m_termHash.get(qTerms[0]).m_termFreqPL;
+		else 
+			andFailed = true;
 		LinkedList<postingNode> result = new LinkedList<postingNode>(termFreq);
 		
 		int compareCount = 0;
 		for(int i=1; i<qTerms.length; i++) {
+			if(!m_termHash.containsKey(qTerms[i])) {
+				//System.out.println("Terms not found " + qTerms[i] );
+				andFailed = true;
+				break;
+			}
+			
 			// get the termFreqPL posting list for this term
 			termFreq = m_termHash.get(qTerms[i]).m_termFreqPL;
 			for(int j=0; j<result.size(); j++) {
@@ -178,44 +212,64 @@ public class CSE535Assignment {
 			}
 			//System.out.println("Result size: "+result.size());
 		}
-		result.sort(new Comparator<postingNode>() {
-	        public int compare(postingNode p1, postingNode p2) {
-	            return p1.m_docId < p2.m_docId ? -1 : 1;
-	        }
-	    });
+		if(!andFailed) {
+			result.sort(new Comparator<postingNode>() {
+				public int compare(postingNode p1, postingNode p2) {
+					return p1.m_docId < p2.m_docId ? -1 : 1;
+				}
+			});
+		}
 		long timeE = System.currentTimeMillis();
+		timeTaken = (timeE-timeS)/1000;
 		
 		try {
-			String resString = "Function: termAtATimeQueryAnd ";
-			for(int i=0; i<qTerms.length; i++) {
-				resString += qTerms[i] + " ";
+			String resString = null;
+			if(!isOptimized) {	
+				//System.out.println("Printing to stdout");
+				resString = "Function: termAtATimeQueryAnd ";
+				for(int i=0; i<qTerms.length; i++) {
+					resString += qTerms[i] + ", ";
+				}
+				outLog.write(resString);
+				outLog.newLine();
+				
+				int size;
+				if(andFailed) size = 0;
+				else size = result.size();
+				outLog.write(size + " documents are found");
+				outLog.newLine();
+				
+				outLog.write(compareCount + " comparisons are made");
+				outLog.newLine();
+				
+				outLog.write((timeE-timeS)/1000.0 + " seconds are used");
+				outLog.newLine();
 			}
-			outLog.write(resString);
-			outLog.newLine();
+			else {
+				outLog.write(compareCount + " comparisons are made after optimization");
+				outLog.newLine();
 			
-			outLog.write(result.size() + " documents are found");
-			outLog.newLine();
-			
-			outLog.write(compareCount + " comparisons are made");
-			outLog.newLine();
-			
-			outLog.write((timeE-timeS)/1000 + " seconds are used");
-			outLog.newLine();
-			
-			resString = "Result: ";
-			for(int i=0; i<result.size(); i++) {
-				resString += (result.get(i).m_docId + " ") ;
+				if(!andFailed) {
+					resString = "Result: ";
+					for(int i=0; i<result.size(); i++) {
+						resString += (result.get(i).m_docId + ", ") ;
+					}
+				}
+				else {
+					resString = "Result: Terms not found";
+				}
+				outLog.write(resString);
+				outLog.newLine();
 			}
-			outLog.write(resString);
-			outLog.newLine();
 			
 		} catch (IOException e) {
 			System.out.println("Failed to log");
 			e.printStackTrace();
-		}	
+		}
+		return "";
 	}
 	
-	public void termAtATimeQueryOr(String[] qTerms) {
+	public void termAtATimeQueryOr(String[] qTerms, boolean isOptimized) {
 		long timeS = System.currentTimeMillis();
 		
 		LinkedList<postingNode> termFreq = m_termHash.get(qTerms[0]).m_termFreqPL;
@@ -223,6 +277,9 @@ public class CSE535Assignment {
 		
 		int compareCount = 0;
 		for(int i=1; i<qTerms.length; i++) {
+			if(!m_termHash.containsKey(qTerms[i])) {
+				continue;
+			}
 			// get the termFreqPL posting list for this term
 			termFreq = m_termHash.get(qTerms[i]).m_termFreqPL;
 			LinkedList<postingNode> temp = new LinkedList<postingNode>();
@@ -250,36 +307,48 @@ public class CSE535Assignment {
 	        }
 	    });
 		long timeE = System.currentTimeMillis();
+		timeTaken = (timeE-timeS)/1000;
 		
 		try {
-			String resString = "Function: termAtATimeQueryOr ";
-			for(int i=0; i<qTerms.length; i++) {
-				resString += qTerms[i] + " ";
+			String resString = null;
+			if(!isOptimized) {
+				resString = "Function: termAtATimeQueryOr ";
+				for(int i=0; i<qTerms.length; i++) {
+					resString += qTerms[i] + ", ";
+				}
+				outLog.write(resString);
+				outLog.newLine();
+				
+				outLog.write(result.size() + " documents are found");
+				outLog.newLine();
+				
+				outLog.write(compareCount + " comparisons are made");
+				outLog.newLine();
+				
+				outLog.write((timeE-timeS)/1000.0 + " seconds are used");
+				outLog.newLine();
 			}
-			outLog.write(resString);
-			outLog.newLine();
-			
-			outLog.write(result.size() + " documents are found");
-			outLog.newLine();
-			
-			outLog.write(compareCount + " comparisons are made");
-			outLog.newLine();
-			
-			outLog.write((timeE-timeS)/1000 + " seconds are used");
-			outLog.newLine();
-			
-			resString = "Result: ";
-			for(int i=0; i<result.size(); i++) {
-				resString += (result.get(i).m_docId + " ") ;
+			else {
+				outLog.write(compareCount + " comparisons are made after optimization");
+				outLog.newLine();
+				
+				resString = "Result: ";
+				if(result.size() == 0) {
+					resString += " Terms not found";
+				}
+				else {
+					for(int i=0; i<result.size(); i++) {
+						resString += (result.get(i).m_docId + ", ") ;
+					}
+				}
+				outLog.write(resString);
+				outLog.newLine();
 			}
-			outLog.write(resString);
-			outLog.newLine();
 			
 		} catch (IOException e) {
 			System.out.println("Failed to log");
 			e.printStackTrace();
-		}
-		
+		} 
 	}
 
 	public void docAtATimeQueryAnd(String[] qTerms) {
@@ -288,42 +357,65 @@ public class CSE535Assignment {
 		LinkedList<String> result = new LinkedList<String>();
 		
 		int[] docIdCount = new int[qTerms.length];
+		boolean andFailed = false;
 		for(int i=0; i<qTerms.length; i++) {
+			if(!m_termHash.containsKey(qTerms[i])) {
+				andFailed = true;
+				break;
+			}
 			docIdCount[i] = m_termHash.get(qTerms[i]).m_nDocCount;
 		}
 		
 		int compareCount = 0;
 		boolean allListsMerged = false;
+		boolean foundMax = false;
 		
-		while(true) {
+		while(true && !andFailed) {
 			if(allListsMerged) {
 				break;
 			}
 			int maxDocId = Integer.MIN_VALUE;
-			// check if find the maximum docId among all query terms at current index
-			for(int i=0; i<listIx.length; i++) {
-				if(listIx[i] == -1) {
-					break;
+			int maxTerm = Integer.MIN_VALUE;
+			// find the maximum docId among all query terms at current index
+			if(!foundMax) {
+				for(int i=0; i<listIx.length; i++) {
+					// get the termObject of a query term
+					LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
+					if(docId.get(listIx[i]).m_docId > maxDocId) {
+						maxDocId = docId.get(listIx[i]).m_docId;
+						maxTerm = i;
+					}
+					compareCount++;
 				}
-				// get the termObject of a query term
-				LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
-				if(docId.get(listIx[i]).m_docId > maxDocId) {
-					maxDocId = docId.get(listIx[i]).m_docId;
-				}
-				compareCount++;
+				foundMax = true;	
 			}
+			// Check if all the lists at their current Index have same element which is maxDocId
 			boolean isFound = true;
 			for(int i=0; i<listIx.length; i++) {
-				if(listIx[i] == -1)
-					break;
-				LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
-				if(docId.get(listIx[i]).m_docId != maxDocId) {
-					isFound = false;
-					listIx[i]++;
-				}
-				compareCount++;
-				if(listIx[i] == docIdCount[i]) {
-					allListsMerged = true;
+				if(maxTerm != i) {
+					LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
+					for(int j=0; j<docId.size(); j++) {
+						if(listIx[i] == docIdCount[i]) {
+							allListsMerged = true;
+							break;
+						}
+						compareCount++;
+						if(docId.get(listIx[i]).m_docId < maxDocId) {
+							listIx[i]++;
+							if(listIx[i] == docIdCount[i]) {
+								isFound = false;
+								allListsMerged = true;
+								break;
+							}
+						}
+						else {
+							if(docId.get(listIx[i]).m_docId > maxDocId) {
+								isFound = false;
+								foundMax = false;
+							}
+							break;
+						}
+					}
 				}
 			}
 			if(isFound) {
@@ -334,6 +426,7 @@ public class CSE535Assignment {
 						allListsMerged = true;
 					}
 				}
+				foundMax = false;
 			}
 		}
 		
@@ -341,7 +434,7 @@ public class CSE535Assignment {
 		try {
 			String resString = "Function: docAtATimeQueryAnd ";
 			for(int i=0; i<qTerms.length; i++) {
-				resString += qTerms[i] + " ";
+				resString += qTerms[i] + ", ";
 			}
 			outLog.write(resString);
 			outLog.newLine();
@@ -355,9 +448,14 @@ public class CSE535Assignment {
 			outLog.write((timeE-timeS)/1000 + " seconds are used");
 			outLog.newLine();
 			
-			resString = "Result: ";
-			for(int i=0; i<result.size(); i++) {
-				resString += (result.get(i) + " ") ;
+			if(!andFailed) {
+				resString = "Result: ";
+				for(int i=0; i<result.size(); i++) {
+					resString += (result.get(i) + ", ") ;
+				}
+			}
+			else {
+				resString = "Result: Terms not found";
 			}
 			outLog.write(resString);
 			outLog.newLine();
@@ -368,18 +466,27 @@ public class CSE535Assignment {
 		}
 	}
 	
-	public void docAtATimeQueryOr(String[] qTerms) {
+	public void docAtATimeQueryOr(String[] qTermsOrg) {
 		long timeS = System.currentTimeMillis();
-		int[] listIx = new int[qTerms.length];
+		ArrayList<String> qTerms = new ArrayList<String>();
+		int j=0;
+		for(int i=0; i<qTermsOrg.length ; i++) {
+			if(m_termHash.containsKey(qTermsOrg[i])) {
+				qTerms.add(qTermsOrg[i]);
+				j++;
+			}
+		}
+		
+		int[] listIx = new int[qTerms.size()];
 		LinkedList<String> result = new LinkedList<String>();
 		
-		int[] docIdCount = new int[qTerms.length];
-		for(int i=0; i<qTerms.length; i++) {
-			docIdCount[i] = m_termHash.get(qTerms[i]).m_nDocCount;
+		int[] docIdCount = new int[qTerms.size()];
+		for(int i=0; i<qTerms.size(); i++) {
+			docIdCount[i] = m_termHash.get(qTerms.get(i)).m_nDocCount;
 		}
 		
 		int compareCount = 0;
-		int listsToMergeCount = qTerms.length;
+		int listsToMergeCount = qTerms.size();
 		
 		while(true) {
 			if(listsToMergeCount == 0) {
@@ -392,7 +499,7 @@ public class CSE535Assignment {
 					continue;
 				}
 				// get the termObject of a query term
-				LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
+				LinkedList<postingNode> docId = m_termHash.get(qTerms.get(i)).m_docIdPL;
 				if(docId.get(listIx[i]).m_docId < minDocId) {
 					minDocId = docId.get(listIx[i]).m_docId;
 				}
@@ -404,7 +511,7 @@ public class CSE535Assignment {
 			for(int i=0; i<listIx.length; i++) {
 				if(listIx[i] == -1)
 					continue;
-				LinkedList<postingNode> docId = m_termHash.get(qTerms[i]).m_docIdPL;
+				LinkedList<postingNode> docId = m_termHash.get(qTerms.get(i)).m_docIdPL;
 				if(docId.get(listIx[i]).m_docId == minDocId) {
 					listIx[i]++;
 				}
@@ -419,8 +526,8 @@ public class CSE535Assignment {
 		long timeE = System.currentTimeMillis();
 		try {
 			String resString = "Function: docAtATimeQueryOr ";
-			for(int i=0; i<qTerms.length; i++) {
-				resString += qTerms[i] + " ";
+			for(int i=0; i<qTermsOrg.length; i++) {
+				resString += qTermsOrg[i] + ", ";
 			}
 			outLog.write(resString);
 			outLog.newLine();
@@ -435,8 +542,13 @@ public class CSE535Assignment {
 			outLog.newLine();
 			
 			resString = "Result: ";
-			for(int i=0; i<result.size(); i++) {
-				resString += (result.get(i) + " ") ;
+			if(result.size() == 0) {
+				resString += "Terms not found";
+			}
+			else {
+				for(int i=0; i<result.size(); i++) {
+					resString += (result.get(i) + ", ") ;
+				}
 			}
 			outLog.write(resString);
 			outLog.newLine();
